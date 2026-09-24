@@ -58,6 +58,7 @@ print("UPSTREAM_REPO=" + shlex.quote(base["repo"]))
 print("UPSTREAM_BRANCH=" + shlex.quote(base["branch"]))
 print("BUILD_SUBDIR=" + shlex.quote(lay["build_subdir"]))
 print("PORT_BRANCH=" + shlex.quote(lay["port_branch"]))
+print("PORT_PREFIX=" + shlex.quote(lay["port_commit_prefix"]))
 print("CUDA_ARCH_DEFAULT=" + shlex.quote(str(build["cuda_arch_default"])))
 print("CMAKE_MIN=" + shlex.quote(m["require"]["cmake"]))
 print("CMAKE_OPTIONS=" + shlex.quote(" ".join(build["cmake_options"])))
@@ -71,22 +72,30 @@ for t in git cmake ninja "$PYTHON" pkg-config; do
   command -v "$t" >/dev/null 2>&1 || die "$t missing (run: bash scripts/setup.sh)"
 done
 
-# CUDA toolkit: honour CUDA_HOME, else PATH, else /usr/local/cuda*.
+# CUDA toolkit: honour CUDA_HOME, else PATH, else the NEWEST /usr/local/cuda* with an nvcc
+# (upstream tests on the newest 13.x line; the manifest floor is the minimum, not the target).
 if [ -z "${CUDA_HOME:-}" ]; then
   if command -v nvcc >/dev/null 2>&1; then
     CUDA_HOME="$(dirname "$(dirname "$(command -v nvcc)")")"
   else
+    best=""
     for d in /usr/local/cuda-*/; do
-      [ -x "${d}bin/nvcc" ] && { CUDA_HOME="${d%/}"; break; }
+      d="${d%/}"
+      [ -x "$d/bin/nvcc" ] || continue
+      [ -z "$best" ] && best="$d" && continue
+      if [ "$(printf '%s\n%s\n' "$best" "$d" | sort -V | tail -1)" = "$d" ]; then
+        best="$d"
+      fi
     done
+    [ -n "$best" ] && CUDA_HOME="$best"
   fi
 fi
 [ -x "$CUDA_HOME/bin/nvcc" ] || die "no CUDA toolkit found (set CUDA_HOME)"
 export PATH="$CUDA_HOME/bin:$PATH"
 export CUDACXX="$CUDA_HOME/bin/nvcc"
-NVCC_VER="$("$CUDACXX" --version | tail -1 | sed -n 's/.*release \([0-9.]*\).*/\1/p')"
-printf '  nvcc   CUDA %s (%s)\n' "$NVCC_VER" "$CUDA_HOME"
-printf '  cmake  %s\n' "$(cmake --version | head -1 | sed 's/cmake //')"
+NVCC_VER="$("$CUDACXX" --version | grep -oE 'release [0-9][0-9.]*' | awk 'NR==1' | cut -d' ' -f2)"
+printf '  nvcc   CUDA %s (%s)\n' "${NVCC_VER:-?}" "$CUDA_HOME"
+printf '  cmake  %s\n' "$(cmake --version | grep -oE '[0-9]+(\.[0-9]+)+' | awk 'NR==1')"
 
 # host compiler: gcc-13 if present (Ubuntu 24.04 default), else the distro default.
 if command -v gcc-13 >/dev/null 2>&1; then
@@ -99,7 +108,7 @@ printf '  host   %s %s\n' "$HOST_CXX" "$($HOST_CXX -dumpversion 2>/dev/null || e
 
 # pkg-config floors (manifest-driven) - fail early with a clear message.
 fail=0
-IFS=':' read -ra FLOOR_PAIRS <<< "$PC_FLOORS"
+read -ra FLOOR_PAIRS <<< "$PC_FLOORS"   # whitespace-separated "module:floor" pairs
 for pair in "${FLOOR_PAIRS[@]}"; do
   mod="${pair%%:*}"; floor="${pair##*:}"
   if pkg-config --exists "$mod" 2>/dev/null && pkg-config --atleast-version="$floor" "$mod" 2>/dev/null; then
@@ -115,7 +124,9 @@ done
 ARCH="${NINFER_CUDA_ARCH:-$CUDA_ARCH_DEFAULT}"
 step "target device"
 if command -v nvidia-smi >/dev/null 2>&1; then
-  GPU_LINE="$(nvidia-smi --query-gpu=name,compute_cap,memory.total --format=csv,noheader | head -1)"
+  # awk 'NR==1', not head -1: with several GPUs head closes the pipe early,
+  # nvidia-smi dies on SIGPIPE and pipefail kills this script.
+  GPU_LINE="$(nvidia-smi --query-gpu=name,compute_cap,memory.total --format=csv,noheader 2>/dev/null | awk 'NR==1')"
   printf '  GPU: %s\n' "$GPU_LINE"
   GPU_CC="$(printf '%s' "$GPU_LINE" | cut -d, -f2 | tr -d ' ')"
   GPU_ARCH="${GPU_CC//./}"
@@ -140,7 +151,12 @@ if [ ! -d "$SRC/.git" ]; then
 else
   printf '  reusing %s @ %s\n' "$SRC" "$(git -C "$SRC" rev-parse --short HEAD)"
 fi
+# Record the upstream BASE (the port commit's parent), not the port commit itself.
 UPSTREAM_SHA="$(git -C "$SRC" rev-parse HEAD)"
+if git -C "$SRC" log -1 --format=%s | grep -q "^$PORT_PREFIX" && \
+   git -C "$SRC" rev-parse --verify -q HEAD~1 >/dev/null; then
+  UPSTREAM_SHA="$(git -C "$SRC" rev-parse HEAD~1)"
+fi
 UPSTREAM_REF="$(git -C "$SRC" rev-parse --abbrev-ref HEAD)"
 [ "$UPSTREAM_REF" = "HEAD" ] && UPSTREAM_REF="(detached at ${UPSTREAM_SHA:0:12})"
 
@@ -187,13 +203,14 @@ find "$BUILD_DIR" -maxdepth 3 -type f -executable \
 
 PORT_COMMIT="$(git -C "$SRC" log --format=%H -1 --grep="l20-port" || true)"
 GPU_JSON="null"
-if command -v nvidia-smi >/dev/null 2>&1; then
-  GPU_JSON="$(nvidia-smi --query-gpu=name,compute_cap,memory.total --format=csv,noheader | head -1 | \
-    "$PYTHON" -c "
+if [ -n "${GPU_LINE:-}" ]; then
+  GPU_JSON="$(printf '%s' "$GPU_LINE" | "$PYTHON" -c "
 import sys
-name, cc, mem = [x.strip() for x in sys.stdin.read().split(',')]
-print('{\"name\": %r, \"compute_cap\": %r, \"memory_total\": %r}' % (name, cc, mem))
-  " 2>/dev/null || echo null)"
+line = sys.stdin.read().strip()
+if line:
+    name, cc, mem = (x.strip() for x in line.split(','))
+    print('{\"name\": %r, \"compute_cap\": %r, \"memory_total\": %r}' % (name, cc, mem))
+" 2>/dev/null || echo null)"
 fi
 
 step "provenance"

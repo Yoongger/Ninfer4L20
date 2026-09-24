@@ -26,7 +26,9 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${NINFER_L20_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
-BIN="$(find "$ROOT/src" -maxdepth 3 -type f -name ninfer-serve -executable 2>/dev/null | head -1)"
+# the upstream tree nests the build dir (src/build) inside the src/ subdir,
+# so the binary lives ~4 levels down; search the whole worktree.
+BIN="$(find "$ROOT/src" -type f -name ninfer-serve -executable 2>/dev/null | head -1)"
 MODEL="${NINFER_MODEL:-$ROOT/models/qwen3_8_27b.ninfer}"
 LOG="$ROOT/serve.log"
 PORT="${1:-${NINFER_PORT:-8090}}"
@@ -39,7 +41,7 @@ if ! command -v nvidia-smi >/dev/null 2>&1; then
   echo "FATAL: nvidia-smi not found - cannot select a device profile"
   exit 1
 fi
-GPU_LINE="$(nvidia-smi --query-gpu=name,memory.total,compute_cap --format=csv,noheader | head -1)"
+GPU_LINE="$(nvidia-smi --query-gpu=name,memory.total,compute_cap --format=csv,noheader,nounits | awk 'NR==1')"
 GPU_NAME="$(printf '%s' "$GPU_LINE" | cut -d, -f1 | tr -d ' ')"
 GPU_MEM="$(printf '%s' "$GPU_LINE" | cut -d, -f2 | tr -d ' ')"   # MiB
 printf '  GPU: %s (%s MiB)\n' "$GPU_NAME" "$GPU_MEM"

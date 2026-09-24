@@ -42,7 +42,8 @@ WORKLOADS = {
 
 
 def find_serve_binary() -> Path:
-    candidates = list((ROOT / "src").glob("build*/apps/ninfer-serve"))
+    # the upstream tree nests the build dir (src/build) inside the src/ subdir
+    candidates = list((ROOT / "src").glob("src/build*/apps/ninfer-serve"))
     if not candidates:
         candidates = list((ROOT / "src").rglob("ninfer-serve"))
     for c in candidates:

@@ -92,20 +92,26 @@ command -v gcc-13 >/dev/null 2>&1 \
   && printf '  %-14s OK   %s\n' "gcc-13" "$(gcc-13 -dumpversion)" \
   || { printf '  %-14s MISSING\n' "gcc-13"; fail=1; }
 
-# CUDA toolkit: on PATH, or any /usr/local/cuda* directory.
+# CUDA toolkit: honour CUDA_HOME, else PATH, else the NEWEST /usr/local/cuda* with an nvcc
+# (version-sorted, so the `cuda` / `cuda-13` convenience symlinks are not picked by accident).
 cuda_home="${CUDA_HOME:-}"
 if [ -z "$cuda_home" ]; then
   if command -v nvcc >/dev/null 2>&1; then
     cuda_home="$(dirname "$(dirname "$(command -v nvcc)")")"
   else
+    best=""
     for d in /usr/local/cuda-*/; do
-      [ -x "$d/bin/nvcc" ] && cuda_home="${d%/}" && break
+      d="${d%/}"
+      [ -x "$d/bin/nvcc" ] || continue
+      [ -z "$best" ] && best="$d" && continue
+      [ "$(printf '%s\n%s\n' "$best" "$d" | sort -V | tail -1)" = "$d" ] && best="$d"
     done
+    [ -n "$best" ] && cuda_home="$best"
   fi
 fi
 if [ -n "$cuda_home" ] && [ -x "$cuda_home/bin/nvcc" ]; then
-  nvcc_ver="$("$cuda_home/bin/nvcc" --version | tail -1 | sed -n 's/.*release \([0-9.]*\).*/\1/p')"
-  printf '  %-14s OK   CUDA %s at %s\n' "nvcc" "$nvcc_ver" "$cuda_home"
+  nvcc_ver="$("$cuda_home/bin/nvcc" --version | grep -oE 'release [0-9][0-9.]*' | head -1 | cut -d' ' -f2)"
+  printf '  %-14s OK   CUDA %s at %s\n' "nvcc" "${nvcc_ver:-?}" "$cuda_home"
 else
   printf '  %-14s MISSING (no nvcc on PATH or under /usr/local/cuda*)\n' "nvcc"; fail=1
 fi
@@ -131,8 +137,8 @@ m = json.load(open('$MANIFEST', encoding='utf-8'))
 for k, v in m['require']['pkg_config_floors'].items():
     print('REQ_PC', k, v)")
 
-# cmake floor
-cmake_ver="$(cmake --version 2>/dev/null | head -1 | sed -n 's/.*cmake \([0-9.]*\).*/\1/p')"
+# cmake floor (tolerates both "cmake 3.28" and the newer "cmake version 3.28" output)
+cmake_ver="$(cmake --version 2>/dev/null | head -1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)"
 if [ -n "$cmake_ver" ] && python3 -c "
 import sys
 a = [int(x) for x in '$cmake_ver'.split('.')[:2] if x.isdigit()]
