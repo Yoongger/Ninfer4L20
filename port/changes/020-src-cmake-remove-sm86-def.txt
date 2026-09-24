@@ -1,0 +1,15 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 7e599fe423f8..e0ddaef045fb 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -320,7 +320,9 @@
+   list(FILTER ninfer_ops_sources EXCLUDE REGEX "kv_cache/append/(nvfp4|k8v4)_launch\\.cu$")
+   set_property(TARGET ninfer_ops PROPERTY SOURCES ${ninfer_ops_sources})
+   target_sources(ninfer_ops PRIVATE ops/nvfp4_sm86_stubs.cpp)
+-  target_compile_definitions(ninfer_ops PUBLIC NINFER_SM86=1)
++  # The architecture identity macro is defined once at directory scope in the top-level
++  # CMakeLists.txt, where the architecture is validated. Do not re-derive it here: doing so is what
++  # labelled the sm_89 build NINFER_SM86.
+ endif()
+ ninfer_internal_includes(ninfer_ops)
+ ninfer_cuda_archive(ninfer_ops)

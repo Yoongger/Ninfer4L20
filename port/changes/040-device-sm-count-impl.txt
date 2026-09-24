@@ -1,0 +1,28 @@
+diff --git a/src/core/device.cu b/src/core/device.cu
+index 54db2d31bdbb..fc446a49223e 100644
+--- a/src/core/device.cu
++++ b/src/core/device.cu
+@@ -35,6 +35,23 @@
+ }
+ 
+ } // namespace
++
++int device_sm_count() {
++    static const int count = [] {
++        int current = 0;
++        if (cudaGetDevice(&current) != cudaSuccess) {
++            throw std::runtime_error(
++                cuda_error_message("cudaGetDevice failed", cudaGetLastError()));
++        }
++        cudaDeviceProp props{};
++        const cudaError_t err = cudaGetDeviceProperties(&props, current);
++        if (err != cudaSuccess) {
++            throw std::runtime_error(cuda_error_message("cudaGetDeviceProperties failed", err));
++        }
++        return props.multiProcessorCount;
++    }();
++    return count;
++}
+ 
+ void cuda_check(cudaError_t err, const char* expr, const char* file, int line) {
+     if (err == cudaSuccess) { return; }

@@ -1,0 +1,39 @@
+diff --git a/src/ops/linear_attention/gated_delta_net/chunked/output.cu b/src/ops/linear_attention/gated_delta_net/chunked/output.cu
+index 25dd7b360875..019f4eeeb145 100644
+--- a/src/ops/linear_attention/gated_delta_net/chunked/output.cu
++++ b/src/ops/linear_attention/gated_delta_net/chunked/output.cu
+@@ -1,4 +1,6 @@
+ #include "ops/linear_attention/gated_delta_net/chunked/launch.h"
++
++#include "core/device.h"
+ #include "ops/linear_attention/gated_delta_net/chunked/output.cuh"
+ 
+ namespace ninfer::ops::detail::gated_delta_net::chunked {
+@@ -6,9 +8,7 @@
+ 
+ namespace kernel = output;
+ 
+-constexpr std::int64_t kRtx5090SmCount = 170;
+-constexpr std::int64_t kCtasPerSm      = 4;
+-constexpr std::int64_t kTargetCtas     = kRtx5090SmCount * kCtasPerSm;
++constexpr std::int64_t kCtasPerSm = 4;
+ 
+ template <bool MULTI_JOB>
+ cudaError_t launch_fixed(const chunk_output_config& cfg, dim3 grid, head_map qk_map, int chunks) {
+@@ -40,10 +40,13 @@
+     const auto qk_map     = head_map::of((int)cfg.H_qk, (int)cfg.H_v);
+     const std::int64_t NT = cfg.L / BT;
+ 
+-    // Keep at most one resident RTX 5090 wave and distribute chunks evenly
+-    // across it. Small grids retain one logical job per CTA.
++    // Keep at most one resident wave and distribute chunks evenly across it. Small grids retain one
++    // logical job per CTA. The device-wide CTA target comes from the runtime SM count: a per-part
++    // literal either leaves a narrower device half empty or over-subscribes a wider one, and it also
++    // decides the MULTI_JOB specialisation selected below.
++    const std::int64_t target_ctas    = kCtasPerSm * device_sm_count();
+     const std::int64_t logical_jobs   = NT * cfg.H_v;
+-    const std::int64_t jobs_per_block = (logical_jobs + kTargetCtas - 1) / kTargetCtas;
++    const std::int64_t jobs_per_block = (logical_jobs + target_ctas - 1) / target_ctas;
+     const std::int64_t grid_chunks    = (NT + jobs_per_block - 1) / jobs_per_block;
+     NINFER_GATED_DELTA_NET_PROPAGATE(v.check_grid(grid_chunks, cfg.H_v));
+ 

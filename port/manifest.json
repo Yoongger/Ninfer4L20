@@ -1,0 +1,225 @@
+{
+  "port_id": "ninfer-l20",
+  "port_version": 2,
+  "summary": "Port the NInfer single-GPU inference engine (sm_89 lineage) to the NVIDIA L20.",
+  "base": {
+    "repo": "https://github.com/sergiuszm/ninfer-4090.git",
+    "branch": "rtx4090-port",
+    "note": "The branch tip is tracked by default. No commit is pinned: provenance (the SHA the port was applied to) is recorded in build-info.json after every build, never consumed as an input."
+  },
+  "target": {
+    "device": "NVIDIA L20 (AD102)",
+    "arch": "sm_89",
+    "sm_count": 92,
+    "memory_gb": 48,
+    "bandwidth_gbs": 864,
+    "note": "Documentation values only. The build queries the live device (device_sm_count() / nvidia-smi) at runtime; none of these numbers are hard-coded into the compiled engine."
+  },
+  "compare": {
+    "rtx_4090": { "sm_count": 128, "memory_gb": 24, "bandwidth_gbs": 1008 },
+    "rtx_5090": { "sm_count": 170, "memory_gb": 32, "bandwidth_gbs": 1792 }
+  },
+  "require": {
+    "os": { "recommended": "Ubuntu 24.04", "hard_gate": false, "note": "22.04 cannot satisfy the FFmpeg/libcurl version floors below; 24.04 satisfies them from its own repositories." },
+    "cmake": "3.28",
+    "cuda": "12.8",
+    "gcc": "13",
+    "python": "3.10",
+    "pkg_config_floors": {
+      "libavformat": "60",
+      "libavcodec": "60",
+      "libavutil": "58",
+      "libswscale": "7",
+      "libcurl": "7.85"
+    }
+  },
+  "build": {
+    "cuda_arch_default": 89,
+    "generator": "Ninja",
+    "cmake_options": [
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DNINFER_BUILD_APPS=ON",
+      "-DBUILD_TESTING=ON",
+      "-DNINFER_BUILD_BENCHMARKS=ON"
+    ]
+  },
+  "layout": {
+    "source_subdir": "src",
+    "build_subdir": "src/build",
+    "models_subdir": "models",
+    "port_branch": "l20-port",
+    "port_commit_prefix": "l20-port"
+  },
+  "changes": [
+    {
+      "id": "010-arch-identity",
+      "kind": "patch",
+      "file": "CMakeLists.txt",
+      "patch": "port/changes/010-arch-identity.txt",
+      "description": "Define the architecture identity macro (NINFER_SM86 / NINFER_SM89) at directory scope from CMAKE_CUDA_ARCHITECTURES, so every target agrees on the architecture and Ada is no longer compiled under the Ampere name.",
+      "verify_after": {
+        "must_match": ["add_compile_definitions\\(NINFER_SM89=1\\)"]
+      },
+      "transforms": [
+        {
+          "find": "project\\(ninfer LANGUAGES C CXX CUDA\\)\\n",
+          "count": 1,
+          "replace": "project(ninfer LANGUAGES C CXX CUDA)\n\n# --- Architecture identity ---------------------------------------------------\n# Ada (sm_89) and Ampere (sm_86) share one compatibility kernel organization, and Ada has no\n# Programmatic Dependent Launch, so the compatibility switches must accept either symbol. Ada is\n# nevertheless a distinct target: the declared device is the NVIDIA L20 (AD102, 92 SMs). Defined at\n# directory scope so ninfer_core and ninfer_ops cannot disagree about the architecture.\nif(CMAKE_CUDA_ARCHITECTURES STREQUAL \"86\")\n  add_compile_definitions(NINFER_SM86=1)\nelseif(CMAKE_CUDA_ARCHITECTURES STREQUAL \"89\")\n  add_compile_definitions(NINFER_SM89=1)\nendif()\n"
+        }
+      ]
+    },
+    {
+      "id": "020-src-cmake-remove-sm86-def",
+      "kind": "patch",
+      "file": "src/CMakeLists.txt",
+      "patch": "port/changes/020-src-cmake-remove-sm86-def.txt",
+      "description": "Remove the hard-coded NINFER_SM86=1 target definition from src/CMakeLists.txt (it labelled the sm_89 build Ampere). The NVFP4 source filtering the definition guarded is kept; the identity now comes from the top-level directory-scope definition.",
+      "verify_after": {
+        "must_not_match": ["target_compile_definitions\\(ninfer_ops PUBLIC NINFER_SM86=1\\)"]
+      },
+      "transforms": [
+        {
+          "find": "  target_compile_definitions\\(ninfer_ops PUBLIC NINFER_SM86=1\\)\\n",
+          "count": 1,
+          "replace": "  # The architecture identity macro is defined once at directory scope in the top-level\n  # CMakeLists.txt, where the architecture is validated. Do not re-derive it here: doing so is what\n  # labelled the sm_89 build NINFER_SM86.\n"
+        }
+      ]
+    },
+    {
+      "id": "030-device-sm-count-decl",
+      "kind": "patch",
+      "file": "src/core/device.h",
+      "patch": "port/changes/030-device-sm-count-decl.txt",
+      "description": "Declare device_sm_count(): the runtime streaming-multiprocessor count of the device this process runs on, queried once and cached. Launch geometry that fills one resident wave reads the count from here instead of transcribing a per-part literal.",
+      "verify_after": {
+        "must_match": ["^int device_sm_count\\(\\);\\s*$"]
+      },
+      "transforms": [
+        {
+          "find": "#define CUDA_CHECK\\(expr\\) ::ninfer::cuda_check\\(\\(expr\\), #expr, __FILE__, __LINE__\\)\\n",
+          "count": 1,
+          "replace": "#define CUDA_CHECK(expr) ::ninfer::cuda_check((expr), #expr, __FILE__, __LINE__)\n\n// Streaming-multiprocessor count of the device this process runs on, queried once and cached.\n// Launch geometry that deliberately fills one resident wave reads the count from here instead of\n// transcribing a per-part literal. The product runs one resident model on one device, so a single\n// cached query is the whole device set. Declared target: NVIDIA L20 (AD102, sm_89, 92 SMs).\nint device_sm_count();\n"
+        }
+      ]
+    },
+    {
+      "id": "040-device-sm-count-impl",
+      "kind": "patch",
+      "file": "src/core/device.cu",
+      "patch": "port/changes/040-device-sm-count-impl.txt",
+      "description": "Implement device_sm_count() with a one-shot cached cudaGetDeviceProperties query.",
+      "verify_after": {
+        "must_match": ["^int device_sm_count\\(\\) \\{", "props\\.multiProcessorCount"]
+      },
+      "transforms": [
+        {
+          "find": "(?m)^(} // namespace\\n\\nvoid cuda_check\\()",
+          "count": 1,
+          "replace": "} // namespace\n\nint device_sm_count() {\n    static const int count = [] {\n        int current = 0;\n        if (cudaGetDevice(&current) != cudaSuccess) {\n            throw std::runtime_error(\n                cuda_error_message(\"cudaGetDevice failed\", cudaGetLastError()));\n        }\n        cudaDeviceProp props{};\n        const cudaError_t err = cudaGetDeviceProperties(&props, current);\n        if (err != cudaSuccess) {\n            throw std::runtime_error(cuda_error_message(\"cudaGetDeviceProperties failed\", err));\n        }\n        return props.multiProcessorCount;\n    }();\n    return count;\n}\n\nvoid cuda_check("
+        }
+      ]
+    },
+    {
+      "id": "050-gdn-output-runtime-wave",
+      "kind": "patch",
+      "file": "src/ops/linear_attention/gated_delta_net/chunked/output.cu",
+      "patch": "port/changes/050-gdn-output-runtime-wave.txt",
+      "description": "Size the GDN chunked-output resident wave from the runtime SM count instead of the hard-coded RTX 5090 literal (170 SMs * 4 = 680 CTAs). This kernel runs on every GDN layer; 49 of the 65 Qwen3.8-27B layers are GDN. The wrong target also mis-selects the MULTI_JOB kernel specialisation.",
+      "verify_after": {
+        "must_match": ["kCtasPerSm \\* device_sm_count\\(\\)"],
+        "must_not_match": ["kRtx5090SmCount", "kTargetCtas"]
+      },
+      "transforms": [
+        {
+          "id": "runtime wave sizing",
+          "steps": [
+            {
+              "find": "(?m)^#include \"ops/linear_attention/gated_delta_net/chunked/launch\\.h\"\\n(\\n#include \"core/device\\.h\"\\n)?",
+              "count": 1,
+              "replace": "#include \"ops/linear_attention/gated_delta_net/chunked/launch.h\"\n\n#include \"core/device.h\"\n"
+            },
+            {
+              "find": "constexpr std::int64_t kRtx5090SmCount = 170;\\nconstexpr std::int64_t kCtasPerSm\\s*= 4;\\nconstexpr std::int64_t kTargetCtas\\s*= kRtx5090SmCount \\* kCtasPerSm;\\n",
+              "count": 1,
+              "replace": "constexpr std::int64_t kCtasPerSm = 4;\n"
+            },
+            {
+              "find": "(?s)    // Keep at most one resident RTX 5090 wave and distribute chunks evenly\\n    // across it\\. Small grids retain one logical job per CTA\\.\\n(\\s*)const std::int64_t logical_jobs\\s+= NT \\* cfg\\.H_v;\\n(\\s*)const std::int64_t jobs_per_block = \\(logical_jobs \\+ kTargetCtas - 1\\) / kTargetCtas;",
+              "count": 1,
+              "replace": "    // Keep at most one resident wave and distribute chunks evenly across it. Small grids retain one\n    // logical job per CTA. The device-wide CTA target comes from the runtime SM count: a per-part\n    // literal either leaves a narrower device half empty or over-subscribes a wider one, and it also\n    // decides the MULTI_JOB specialisation selected below.\n    const std::int64_t target_ctas    = kCtasPerSm * device_sm_count();\n    const std::int64_t logical_jobs   = NT * cfg.H_v;\n    const std::int64_t jobs_per_block = (logical_jobs + target_ctas - 1) / target_ctas;"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "060-sparse-moe-runtime-cap",
+      "kind": "patch",
+      "file": "src/ops/sparse_moe/prefill/sparse_moe_prefill_kernels.cu",
+      "patch": "port/changes/060-sparse-moe-runtime-cap.txt",
+      "description": "Derive the sparse-MoE prefill grid cap from the runtime SM count instead of the hard-coded RTX 5090 literal. Only the Qwen3.6-35B-A3B target routes through this kernel (Qwen3.8-27B is dense), patched so the tree carries no per-part SM literal. The grid strides its work list, so any cap is correct; the runtime value keeps a narrower device from being over-subscribed.",
+      "verify_after": {
+        "must_not_match": ["kRtx5090SmCount"]
+      },
+      "transforms": [
+        {
+          "id": "current-tip: kPrefillMaxBlocks cap",
+          "steps": [
+            { "find": "(?m)^constexpr int kRtx5090SmCount\\s*= 170;\\n", "count": 1, "replace": "" },
+            {
+              "find": "constexpr int kPrefillMaxBlocks\\s*= kPrefillMaxBlocksPerSm \\* kRtx5090SmCount;\\n",
+              "count": 1,
+              "replace": "// Upper bound on the prefill grid, derived from the runtime SM count instead of a per-part\n// literal: the grid strides its work list, so any cap is correct; the runtime value just keeps a\n// narrower device than the part this was tuned on from being over-subscribed.\nint prefill_max_blocks() { return kPrefillMaxBlocksPerSm * device_sm_count(); }\n"
+            },
+            { "find": "std::min\\(routed_gate_work, kPrefillMaxBlocks\\)", "count": 1, "replace": "std::min(routed_gate_work, prefill_max_blocks())" },
+            { "find": "std::min\\(routed_down_work, kPrefillMaxBlocks\\)", "count": 1, "replace": "std::min(routed_down_work, prefill_max_blocks())" }
+          ]
+        },
+        {
+          "id": "legacy: kPrefillPersistentBlocks grid",
+          "steps": [
+            { "find": "(?m)^#include \"ops/sparse_moe/prefill/sparse_moe_prefill\\.h\"\\n(\\n#include \"core/device\\.h\"\\n)?", "count": 1, "replace": "#include \"ops/sparse_moe/prefill/sparse_moe_prefill.h\"\n\n#include \"core/device.h\"\n" },
+            {
+              "find": "constexpr int kRtx5090SmCount\\s*= 170;\\nconstexpr int kPrefillBlocksPerSm\\s*= 3;\\nconstexpr int kPrefillPersistentBlocks = kPrefillBlocksPerSm \\* kRtx5090SmCount;\\n",
+              "count": 1,
+              "replace": "constexpr int kPrefillBlocksPerSm = 3;\n\n// Persistent-block prefill grid. Sized from the runtime SM count rather than a per-part literal.\n// This op is only reached by the Qwen3.6-35B-A3B target.\nint prefill_persistent_blocks() { return kPrefillBlocksPerSm * device_sm_count(); }\n"
+            },
+            { "find": "<<<kPrefillPersistentBlocks,", "count": 6, "replace": "<<<prefill_persistent_blocks()," }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "070-gdn-gating-coop-residency",
+      "kind": "patch",
+      "file": "src/ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_kernels.cu",
+      "patch": "port/changes/070-gdn-gating-coop-residency.txt",
+      "description": "Correct the cooperative-residency constant the launch clamp actually reads: for Bf16Gdn27Geometry only split-8 (256 threads, 65 regs) fits two CTAs per SM; split-4/split-2 (512 threads, 74 regs) fit one. Returning 2 for every split overstated the device-wide budget and the driver rejected the launch with cudaErrorCooperativeLaunchTooLarge on a part with fewer SMs than the RTX 4090 (the L20's one real crash).",
+      "verify_after": {
+        "must_match": ["return SplitK == 8 \\? 2 : 1;"]
+      },
+      "transforms": [
+        {
+          "find": "(?s)(        static_assert\\(SplitK == 8 \\|\\| SplitK == 4 \\|\\| SplitK == 2\\);\\n)(?:.*?\\n)*?(        return 2;)\\n",
+          "count": 1,
+          "replace": "\\1        // BN128 split-8 runs 8 warps (256 threads) at 65 registers, so two CTAs need 33,280 of the\n        // 64K register file and the 40-KiB dynamic shared memory does not bind on sm_89 either\n        // (2 x 40 <= 100 KiB). split-4 and split-2 run the default 16 warps (512 threads) at 74\n        // registers: 2 * 512 * 74 = 75,776 > 65,536, so only one CTA fits. Sizing every split at\n        // two CTAs per SM overstates the device-wide cooperative budget and the driver rejects the\n        // launch with cudaErrorCooperativeLaunchTooLarge on a part with fewer SMs than the RTX 4090\n        // this was tuned on. The plan-side budget in bf16_gdn_gating_proj_plan.cpp already carries\n        // these figures; this is the constant the launch clamp actually reads.\n        return SplitK == 8 ? 2 : 1;\n"
+        }
+      ]
+    },
+    {
+      "id": "080-sweep-sm86-compat",
+      "kind": "sweep",
+      "description": "Every NINFER_SM86 preprocessor conditional in the tree also accepts NINFER_SM89. Mechanical and behaviour-preserving: the branch Ada already took under the Ampere name is the compatibility branch. The file set is derived at runtime from the tree, so files added, renamed or rewritten by upstream are picked up automatically. No file list and no line numbers are stored here.",
+      "paths": ["src", "tests", "apps", "include", "tools", "bench"],
+      "rules": [
+        ["#if defined(NINFER_SM86)", "#if defined(NINFER_SM86) || defined(NINFER_SM89)"],
+        ["#if !defined(NINFER_SM86)", "#if !defined(NINFER_SM86) && !defined(NINFER_SM89)"],
+        ["#ifdef NINFER_SM86", "#if defined(NINFER_SM86) || defined(NINFER_SM89)"],
+        ["#ifndef NINFER_SM86", "#if !defined(NINFER_SM86) && !defined(NINFER_SM89)"]
+      ],
+      "verify_after": {
+        "tree_must_not_match": ["^\\s*#\\s*(if\\s+defined\\(NINFER_SM86\\)|if\\s+!defined\\(NINFER_SM86\\)|ifdef NINFER_SM86|ifndef NINFER_SM86)\\s*$"]
+      }
+    }
+  ]
+}

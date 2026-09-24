@@ -1,0 +1,23 @@
+diff --git a/src/ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_kernels.cu b/src/ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_kernels.cu
+index 174af4519e78..4a18daaac9c4 100644
+--- a/src/ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_kernels.cu
++++ b/src/ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_kernels.cu
+@@ -261,9 +261,15 @@
+     static_assert(SplitK > 1);
+     if constexpr (std::is_same_v<Geometry, Bf16Gdn27Geometry>) {
+         static_assert(SplitK == 8 || SplitK == 4 || SplitK == 2);
+-        // Qualified on the sm_120a build: BN128 split-8 uses 256 threads and split-4/2 use
+-        // 512 threads; registers and 40-KiB shared memory admit two resident CTAs per SM.
+-        return 2;
++        // BN128 split-8 runs 8 warps (256 threads) at 65 registers, so two CTAs need 33,280 of the
++        // 64K register file and the 40-KiB dynamic shared memory does not bind on sm_89 either
++        // (2 x 40 <= 100 KiB). split-4 and split-2 run the default 16 warps (512 threads) at 74
++        // registers: 2 * 512 * 74 = 75,776 > 65,536, so only one CTA fits. Sizing every split at
++        // two CTAs per SM overstates the device-wide cooperative budget and the driver rejects the
++        // launch with cudaErrorCooperativeLaunchTooLarge on a part with fewer SMs than the RTX 4090
++        // this was tuned on. The plan-side budget in bf16_gdn_gating_proj_plan.cpp already carries
++        // these figures; this is the constant the launch clamp actually reads.
++        return SplitK == 8 ? 2 : 1;
+     } else {
+         static_assert(std::is_same_v<Geometry, Bf16Gdn35Geometry>);
+         static_assert(SplitK == 32 || SplitK == 16 || SplitK == 8 || SplitK == 4 || SplitK == 2);

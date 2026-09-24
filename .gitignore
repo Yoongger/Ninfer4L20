@@ -1,0 +1,19 @@
+# upstream checkout + build artifacts (the port repo distributes the port, not the engine)
+src/
+build-info.json
+serve.log
+serve-bench.log
+bench-results.json
+*.log
+
+# model artifacts (fetched by scripts/fetch-model.sh)
+models/
+
+# port engine scratch
+.port-report.json
+.port-tmp-patch.txt
+**/.port-report.json
+
+# python
+__pycache__/
+*.pyc

@@ -1,0 +1,43 @@
+ninfer-l20 (this repository)
+Copyright 2026 the ninfer-l20 authors
+
+This project is a derivative work under Apache-2.0 of the following
+Apache-2.0 projects, in dependency order:
+
+  - Neroued/ninfer (https://github.com/Neroued/ninfer)
+      The engine itself (sm_120a / RTX 5090 lineage).
+  - Don-Chad/ninfer-3090 (https://github.com/Don-Chad/ninfer-3090)
+      The SM86 compatibility layer and Qwen3.8 runtime.
+  - sergiuszm/ninfer-4090 (https://github.com/sergiuszm/ninfer-4090)
+      The direct baseline of this port (sm_89 / RTX 4090 port).
+  - UDPSendToFailed/ninfer-4090 (https://github.com/UDPSendToFailed/ninfer-4090)
+      E8 lattice KV quantization (referenced, not merged by this repo).
+
+Changes made by this project to the baseline (see docs/PORT-SPEC.md):
+
+  1. The architecture identity macro (NINFER_SM86 / NINFER_SM89) is
+     defined at directory scope from CMAKE_CUDA_ARCHITECTURES in the
+     top-level CMakeLists.txt; the hard-coded NINFER_SM86=1 target
+     definition in src/CMakeLists.txt is removed.
+  2. Every NINFER_SM86 preprocessor conditional in the tree also
+     accepts NINFER_SM89 (behaviour-preserving: Ada already took the
+     compatibility branch under the Ampere name).
+  3. src/core/device.h / device.cu: device_sm_count() - the runtime
+     streaming-multiprocessor count of the device this process runs
+     on, queried once and cached.
+  4. src/ops/linear_attention/gated_delta_net/chunked/output.cu: the
+     resident-wave target is derived from device_sm_count() instead
+     of a hard-coded RTX 5090 SM count (the kernel runs on 49 of the
+     65 Qwen3.8-27B layers).
+  5. src/ops/sparse_moe/prefill/sparse_moe_prefill_kernels.cu: the
+     prefill grid cap is derived from device_sm_count() instead of a
+     hard-coded RTX 5090 SM count (Qwen3.6-35B-A3B path only).
+  6. src/ops/gdn_gating_proj/bf16/bf16_gdn_gating_proj_kernels.cu:
+     the cooperative-residency constant for Bf16Gdn27Geometry is
+     split-aware (split-8 -> 2 CTAs/SM, split-4/2 -> 1). On a part
+     with fewer SMs than the RTX 4090 the old constant made the
+     driver reject the launch with cudaErrorCooperativeLaunchTooLarge.
+
+The upstream sources are not redistributed in this repository; the
+port is applied to a fresh clone of the baseline by the tooling in
+tools/ and scripts/.

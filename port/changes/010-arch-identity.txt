@@ -1,0 +1,22 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index bb05bf9cec58..16d63e3c54d7 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -13,6 +13,17 @@
+ endif()
+ 
+ project(ninfer LANGUAGES C CXX CUDA)
++
++# --- Architecture identity ---------------------------------------------------
++# Ada (sm_89) and Ampere (sm_86) share one compatibility kernel organization, and Ada has no
++# Programmatic Dependent Launch, so the compatibility switches must accept either symbol. Ada is
++# nevertheless a distinct target: the declared device is the NVIDIA L20 (AD102, 92 SMs). Defined at
++# directory scope so ninfer_core and ninfer_ops cannot disagree about the architecture.
++if(CMAKE_CUDA_ARCHITECTURES STREQUAL "86")
++  add_compile_definitions(NINFER_SM86=1)
++elseif(CMAKE_CUDA_ARCHITECTURES STREQUAL "89")
++  add_compile_definitions(NINFER_SM89=1)
++endif()
+ 
+ # --- Global settings ---------------------------------------------------------
+ option(NINFER_BUILD_APPS "Build the NInfer CLI and server" ON)
