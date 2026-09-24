@@ -12,11 +12,19 @@
 #   NINFER_HOST            (default 0.0.0.0)
 #   NINFER_MODEL           (default $ROOT/models/qwen3_8_27b.ninfer)
 #   NINFER_MAX_CONTEXT     NINFER_KV_CAPACITY
-#   NINFER_KV_DTYPE        int8 | f16 | ...   (default per profile)
+#   NINFER_KV_DTYPE        int8 | bf16 | fp8 | ...   (default per profile)
 #   NINFER_SPEC            mtp | none        (default mtp)
 #   NINFER_DRAFT_TOKENS    (default 3)
-#   NINFER_PREFILL_CHUNK   (default 1024; keep <= 2688, see PORT-SPEC)
+#   NINFER_PREFILL_CHUNK   (default per profile; keep <= 2688, see PORT-SPEC)
 #   NINFER_MAX_CONCURRENCY (default 1)
+#
+# The L20 profile ships the fastest measured configuration
+# (2026-09-24, L20 48 GB, 262144 context, same-build A/B):
+#   --kv-dtype bf16      +3.6..12.8% decode vs int8, +1..3.4% prefill,
+#                        highest KV fidelity (no quantisation)
+#   --prefill-chunk 2688 +3.7..6.7% prefill vs 1024 at 86k..219k context
+#   --spec mtp k3        fastest of draft-tokens 1..5 on both 27B artifacts
+#   --max-concurrency 1  single-stream serving; conc 2 is -0.7% per request
 #
 # Usage:
 #   bash scripts/start.sh [port]
@@ -48,14 +56,22 @@ printf '  GPU: %s (%s MiB)\n' "$GPU_NAME" "$GPU_MEM"
 
 case "$GPU_NAME" in
   *L20*)
-    # 48 GB: INT8 KV at the model's full native context. No 4-bit compromise needed.
-    P_MAX_CONTEXT=262144; P_KV_CAPACITY=262144; P_KV_DTYPE=int8; PROFILE="L20" ;;
+    # 48 GB: full native context with BF16 KV - the fastest measured
+    # configuration (same-build A/B, 2026-09-24): +3.6..12.8% decode vs
+    # int8 via higher MTP acceptance, +1..3.4% prefill, no KV
+    # quantisation error. BF16 KV at 262144 is 16.5 GiB on device; the
+    # engine fits the whole plan in 48 GB with room to spare.
+    P_MAX_CONTEXT=262144; P_KV_CAPACITY=262144; P_KV_DTYPE=bf16
+    P_PREFILL_CHUNK=2688; PROFILE="L20 (fastest measured)" ;;
   *"4090"*)
     # 24 GB: INT8 KV ceiling is ~172032 (196608 is rejected at startup).
-    P_MAX_CONTEXT=262144; P_KV_CAPACITY=172032; P_KV_DTYPE=int8; PROFILE="RTX 4090" ;;
+    # BF16 KV would need 11.5 GiB of cache and does not fit the plan.
+    P_MAX_CONTEXT=262144; P_KV_CAPACITY=172032; P_KV_DTYPE=int8
+    P_PREFILL_CHUNK=1024; PROFILE="RTX 4090" ;;
   *)
     # Unknown sm_89 part: conservative KV, everything else identical.
-    P_MAX_CONTEXT=262144; P_KV_CAPACITY=65536; P_KV_DTYPE=int8; PROFILE="unknown (conservative KV)" ;;
+    P_MAX_CONTEXT=262144; P_KV_CAPACITY=65536; P_KV_DTYPE=int8
+    P_PREFILL_CHUNK=1024; PROFILE="unknown (conservative KV)" ;;
 esac
 printf '  profile: %s\n' "$PROFILE"
 
@@ -64,13 +80,13 @@ KV_CAPACITY="${NINFER_KV_CAPACITY:-$P_KV_CAPACITY}"
 KV_DTYPE="${NINFER_KV_DTYPE:-$P_KV_DTYPE}"
 SPEC="${NINFER_SPEC:-mtp}"
 DRAFT_TOKENS="${NINFER_DRAFT_TOKENS:-3}"
-PREFILL_CHUNK="${NINFER_PREFILL_CHUNK:-1024}"
+PREFILL_CHUNK="${NINFER_PREFILL_CHUNK:-$P_PREFILL_CHUNK}"
 MAX_CONCURRENCY="${NINFER_MAX_CONCURRENCY:-1}"
 
 # --- sanity: will the KV budget fit in the free VRAM? --------------------
 KV_BYTES_PER_TOKEN=$(case "$KV_DTYPE" in
   int8) echo 35900 ;;
-  f16)  echo 65536 ;;
+  f16|bf16) echo 68000 ;;   # bf16 KV measured 33792*2 B/token at 262144
   *)    echo 26400 ;;
 esac)
 USED="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1 | tr -d ' ')"

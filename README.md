@@ -169,6 +169,47 @@ v2 构建与 v1 实测差 ±4%（工具链差异：v1 用 CUDA 13.1）——**�
 L20 带宽是 4090 的 85.7%、SM 数 71.9%，**实测落在硬件规格区间内，移植未引入额外损失**。
 48 GB 的价值：INT8 KV 直接拉满原生 262,144（4090 在 24 GB 下只能到 172,032，被迫用 4-bit E8 并付 5.7% 解码税）。
 
+## 最快性能配置（262144 实测，start.sh 的 L20 profile 即此配置）
+
+2026-09-24 在 L20 上对**同一构建**做了完整扫描与 A/B（max-context/kv-capacity 固定 262144，
+单请求，两个 27B 产物：官方 groupwise + WaveCut HauhauCS-DFlash2）：
+
+**扫描结论（每项单独 A/B）：**
+
+| 参数 | 结论 |
+|---|---|
+| `--kv-dtype` | **bf16 最快**：greedy 解码比 int8 快 3.6–12.8%（MTP 接受率 59.7→67.5%），prefill 快 1–3.7%；fp8 居中（解码 +4.7%）；且 bf16 无 KV 量化误差，精度最高 |
+| `--spec mtp --draft-tokens` | k3 最快（k1 70.8 / k2 86.8 / **k3 96.9** / k4 83.4 / k5 89.8，code greedy 同批 A/B）；k6+ 引擎拒收 |
+| `--prefill-chunk` | 2688：prefill 在 86k–219k 上下文 +3.7–6.7%（882.6 vs 827.3 @219k），解码持平 |
+| `--max-concurrency` | 1：单流场景下 conc2 每请求 −0.7% |
+| CUDA graphs | 开：关掉 −2.6% |
+| `--host-kv-mib` | 2048 与 8192 无速度差（8192 为默认，留 host 溢出余量） |
+
+**A/B 实测（同构建、同机、同日，256 token 解码 + 128k prefill）：**
+
+| 模型 | 配置 | code 贪心 | prose 贪心 | qa 贪心 | MTP 接受率 | 128k prefill | 219k TTFT |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 官方 | int8 | 88.15 | 71.36 | 76.58 | 42–60% | 1073 tok/s | 265 s |
+| 官方 | **bf16** | **96.94** | **73.93** | **81.24** | 43–68% | **1110 tok/s** | **241 s** |
+| WaveCut | int8 | 81.55 | 77.59 | 80.63 | 50–54% | 1068 tok/s | — |
+| WaveCut | **bf16** | **88.69** | **87.49** | **82.86** | 54–60% | **1108 tok/s** | — |
+
+**因此 start.sh 的 L20 profile 为：**
+
+```
+--max-context 262144 --kv-capacity 262144 --kv-dtype bf16
+--spec mtp --draft-tokens 3 --lm-head-draft
+--prefill-chunk 2688 --max-concurrency 1
+```
+
+内存账（L20 48 GB，bf16 KV @ 262144）：权重 15.9 + 设备 KV 16.5 + 常驻 arena ~9.5 +
+workspace/graph ~1 + MTP KV ~0.5 ≈ **43 GiB**，219k（83% KV 占用）长 prompt 实测通过。
+4090（24 GB）放不下 bf16 KV @172032，profile 保持 int8。唯一 int8 略优的场景是
+≥128k 上下文后的解码（KV 读带宽减半），幅度 ±8% 在运行间噪声内。
+DFlash2 产物（recipe v2，7 草稿）同样可用上述配置，另可加
+`--spec dflash2 --draft-tokens 7 --lm-head-draft`（L20 实测 64–88 tok/s，快于无投机、
+慢于 MTP k3）。
+
 ## 已验证的稳健性场景（本仓库测试环境实测）
 
 | 场景 | 结果 |
