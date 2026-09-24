@@ -1,4 +1,4 @@
-# ninfer-l20 移植规格（v2 重写版）
+# Ninfer4L20 移植规格
 
 基线：`sergiuszm/ninfer-4090` @ `rtx4090-port`（sm_89，源自 `Don-Chad/ninfer-3090` 的 sm_86 兼容层）
 目标：NVIDIA L20 — AD102，sm_89，**92 SM**，48 GB GDDR6，864 GB/s
@@ -231,7 +231,7 @@ bash scripts/build.sh --test   # 附 ctest 冒烟
 - CUDA toolkit / 主机编译器 / 架构全部自动探测；`NINFER_CUDA_ARCH`、`CUDA_HOME` 可覆盖。
 - 版本下限（FFmpeg 60/60/58/7、libcurl 7.85、CMake 3.28、GCC 13）来自 manifest，
   **不在脚本里硬编码**。22.04 的 FFmpeg 4.4 / libcurl 7.81 过不了门禁——用 24.04。
-- 容器化等价环境：`docker build -f docker/Dockerfile -t ninfer-l20 .`
+- 容器化等价环境：`docker build -f docker/Dockerfile -t ninfer4l20 .`
   （与上游官方 Dockerfile 同基座 `nvidia/cuda:13.1.2-devel-ubuntu24.04`）。
 
 ### 运行（profile 按实际 GPU 选择，可逐项覆盖）

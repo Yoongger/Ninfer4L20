@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# ninfer-l20 : fetch the Qwen3.8-27B NInfer artifact with a
+# Ninfer4L20 : fetch the Qwen3.8-27B NInfer artifact with a
 # pinned revision + checksum.
 #
 # Why pin: HF's `main` moved to a v3 container on 2026-09-15;

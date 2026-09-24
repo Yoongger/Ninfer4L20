@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static verification of the ninfer-l20 port.
+"""Static verification of the Ninfer4L20 port.
 
 This is the layer that makes the port's invariants enforceable after an upstream update:
 every check is a property of the tree, not of a commit or a patch. If upstream changes

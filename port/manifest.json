@@ -1,5 +1,5 @@
 {
-  "port_id": "ninfer-l20",
+  "port_id": "ninfer4l20",
   "port_version": 2,
   "summary": "Port the NInfer single-GPU inference engine (sm_89 lineage) to the NVIDIA L20.",
   "base": {

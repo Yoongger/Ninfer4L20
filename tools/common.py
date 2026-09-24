@@ -1,4 +1,4 @@
-"""Shared helpers for the ninfer-l20 port tooling.
+"""Shared helpers for the Ninfer4L20 port tooling.
 
 Standard library only. Everything here is deliberately environment-agnostic: the port engine
 works on any checkout of the upstream tree as long as `git` and `python3` exist, so the same

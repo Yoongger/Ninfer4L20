@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # ============================================================
-# ninfer-l20 : reproducible Ubuntu-based build image.
+# Ninfer4L20 : reproducible Ubuntu-based build image.
 #
 # Same base as the upstream project's own Dockerfile
 # (nvidia/cuda on Ubuntu 24.04), so the container build and the
@@ -8,14 +8,14 @@
 # equivalent environments.
 #
 # Build:
-#   docker build -f docker/Dockerfile -t ninfer-l20 .
+#   docker build -f docker/Dockerfile -t ninfer4l20 .
 #
 # Run (the model artifact is mounted in; pick the profile with env):
 #   docker run --gpus all -it --rm \
 #     -p 8090:8090 \
 #     -v "$PWD/models:/ninfer/models:ro" \
 #     -e NINFER_MODEL=/ninfer/models/qwen3_8_27b.ninfer \
-#     ninfer-l20 8090
+#     ninfer4l20 8090
 # ============================================================
 
 FROM nvidia/cuda:13.1.2-devel-ubuntu24.04 AS build

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# ninfer-l20 : fetch the upstream tree, apply the port, build.
+# Ninfer4L20 : fetch the upstream tree, apply the port, build.
 #
 # Ubuntu-first (the original port required WSL2 + PowerShell; this
 # runs on bare Ubuntu 24.04, in WSL, or inside docker/Dockerfile).

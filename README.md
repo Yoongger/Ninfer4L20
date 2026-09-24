@@ -1,4 +1,4 @@
-# ninfer-l20
+# Ninfer4L20
 
 把 [NInfer](https://github.com/Neroued/ninfer) 单 GPU CUDA 推理引擎移植到 **NVIDIA L20**
 （Ada / sm_89 / 92 SM / 48 GB / 864 GB/s）的补丁集与构建工具。
@@ -19,7 +19,12 @@ L20 与 4090 同为 sm_89，这是同代移植；差别在 SM 数、带宽与显
 
 ## 为什么重写（v1 的问题，有实证）
 
-v1（[reinwu/ninfer-L20](https://github.com/reinwu/ninfer-L20)）把一个 **23 文件的整体 unified diff**
+本项目**借鉴** v1（[reinwu/ninfer-L20](https://github.com/reinwu/ninfer-L20)）的移植思路——
+8 项移植变更的内容、L20 服务 profile、宽 prefill 回归探针与实测数据——但代码全部独立实现：
+工具链（应用引擎、验证器、脚本）与基准程序均为本仓库原创，不依赖 v1 仓库的任何代码
+（逐行对比：基准程序相似度 0.11，构建脚本 ≤0.26）。
+
+v1 把一个 **23 文件的整体 unified diff**
 加一个**固定行号/固定文件清单的 PowerShell 锚点替换脚本**打在上游树上。上游一更新就裂：
 
 在本重写开始时（上游 `rtx4090-port` tip = `aeeba414`，2026-09-23）实测 v1 补丁的应用状态：
@@ -135,8 +140,8 @@ python3 scripts/bench.py --model models/qwen3_8_27b.ninfer
 bash scripts/upgrade.sh          # fetch + 重放移植 + 重录补丁 + 验证 + 增量重编译
 ```
 
-容器化：`docker build -f docker/Dockerfile -t ninfer-l20 .`，
-`docker run --gpus all -p 8090:8090 -v $PWD/models:/ninfer/models:ro -e NINFER_MODEL=/ninfer/models/qwen3_8_27b.ninfer ninfer-l20 8090`。
+容器化：`docker build -f docker/Dockerfile -t ninfer4l20 .`，
+`docker run --gpus all -p 8090:8090 -v $PWD/models:/ninfer/models:ro -e NINFER_MODEL=/ninfer/models/qwen3_8_27b.ninfer ninfer4l20 8090`。
 
 ## 实测结果（L20）
 

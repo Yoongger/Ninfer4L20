@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the ninfer-l20 port to a checkout of the upstream tree.
+"""Apply the Ninfer4L20 port to a checkout of the upstream tree.
 
 Design goals (this is the rewrite):
   * No pinned commits. The port is applied to whatever upstream commit the worktree is on;
@@ -182,7 +182,7 @@ def strategy_patch_3way(worktree: Path, change: dict, patch_text: str) -> tuple[
     if "\r\n" in base_text:
         base_text = base_text.replace("\r\n", "\n")
 
-    with tempfile.TemporaryDirectory(prefix="ninfer-l20-3way-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="ninfer4l20-3way-") as tmp:
         tmp_path = Path(tmp)
         tmp_file = tmp_path / relpath
         tmp_file.parent.mkdir(parents=True, exist_ok=True)
@@ -430,7 +430,7 @@ def main() -> int:
         existing = exclude_file.read_text(encoding="utf-8") if exclude_file.exists() else ""
         if ".port-report.json" not in existing and ".port-tmp-patch.txt" not in existing:
             with open(exclude_file, "a", encoding="utf-8") as handle:
-                handle.write("\n# ninfer-l20 port engine artifacts\n.port-report.json\n.port-tmp-patch.txt\n")
+                handle.write("\n# Ninfer4L20 port engine artifacts\n.port-report.json\n.port-tmp-patch.txt\n")
         status_porcelain = git(worktree, "status", "--porcelain").stdout.strip()
         if status_porcelain:
             git(worktree, "add", "-A")

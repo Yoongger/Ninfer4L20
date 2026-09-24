@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# ninfer-l20 : start the engine with a profile chosen from the
+# Ninfer4L20 : start the engine with a profile chosen from the
 # GPU that is actually present.
 #
 # The original port hard-coded the L20 profile (262144 context,
@@ -102,23 +102,22 @@ setsid nohup "${cmd[@]}" >> "$LOG" 2>&1 < /dev/null &
 PID=$!
 disown 2>/dev/null || true
 
-# the engine validates its memory budget before it listens: a successful bind implies
-# a usable configuration
-for i in $(seq 1 100); do
-  code=$(curl -fsS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/v1/models" 2>/dev/null || echo 000)
-  if [ "$code" = "200" ]; then
-    echo "ready after ~$((i*3))s (pid=$PID, log=$LOG)"
-    SM_LINE=$(grep -iE 'sm|multiprocessor' "$LOG" 2>/dev/null | head -1)
-    [ -n "$SM_LINE" ] && echo "  $SM_LINE"
-    exit 0
-  fi
+# the engine validates its memory budget before it listens: a 200 from
+# /v1/models therefore implies a usable configuration. Poll on a deadline.
+READY_DEADLINE=$((SECONDS + 300))
+while [ "$SECONDS" -lt "$READY_DEADLINE" ]; do
   if ! kill -0 "$PID" 2>/dev/null; then
-    echo "FAILED: process exited during startup. Log tail:"
-    tail -20 "$LOG"
+    echo "FAILED: server exited during startup. Last log lines:"
+    tail -n 20 "$LOG"
     exit 1
+  fi
+  if curl -fsS "http://127.0.0.1:$PORT/v1/models" -o /dev/null 2>/dev/null; then
+    echo "ready after ~${SECONDS}s (pid=$PID, log=$LOG)"
+    grep -iE 'sm|multiprocessor' "$LOG" 2>/dev/null | head -n 1
+    exit 0
   fi
   sleep 3
 done
-echo "TIMEOUT waiting for readiness. Log tail:"
-tail -20 "$LOG"
+echo "TIMEOUT: no readiness within ${READY_DEADLINE}s. Last log lines:"
+tail -n 20 "$LOG"
 exit 1

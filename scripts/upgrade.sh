@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# ninfer-l20 : follow an upstream update.
+# Ninfer4L20 : follow an upstream update.
 #
 # This is the workflow the original port did not have: a plain
 # unified diff applied to a moving tree. Here the port is a set
@@ -34,7 +34,7 @@ PYTHON="${PYTHON:-python3}"
 step() { printf '\n########## %s ##########\n' "$*"; }
 die()  { printf 'FATAL: %s\n' "$*" >&2; exit 1; }
 
-[ -f "$ROOT/port/manifest.json" ] || die "manifest not found (is this a ninfer-l20 checkout?)"
+[ -f "$ROOT/port/manifest.json" ] || die "manifest not found (is this a Ninfer4L20 checkout?)"
 [ -d "$SRC/.git" ] || die "no upstream checkout at $SRC (run: bash scripts/build.sh first)"
 
 eval "$("$PYTHON" - "$ROOT/port/manifest.json" <<'EOF'

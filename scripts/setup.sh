@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# ninfer-l20 : install build prerequisites on Ubuntu and gate
+# Ninfer4L20 : install build prerequisites on Ubuntu and gate
 # on the version floors the upstream project declares.
 #
 # Ubuntu-first: no WSL, no /mnt/d, no PowerShell in the path.
