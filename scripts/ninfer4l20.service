@@ -1,0 +1,26 @@
+[Unit]
+Description=NInfer4L20 - Qwen3.8-27B-NInfer inference service (L20, 262144 ctx)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lenovo
+EnvironmentFile=/etc/ninfer4l20.env
+ExecStart=/opt/Ninfer4L20/src/src/build/apps/ninfer-serve ${NINFER_MODEL} \
+  --host ${NINFER_HOST} --port ${NINFER_PORT} \
+  --max-context ${NINFER_MAX_CONTEXT} --kv-capacity ${NINFER_KV_CAPACITY} \
+  --kv-dtype ${NINFER_KV_DTYPE} \
+  --spec ${NINFER_SPEC} --draft-tokens ${NINFER_DRAFT_TOKENS} --lm-head-draft \
+  --prefill-chunk ${NINFER_PREFILL_CHUNK} \
+  --max-concurrency 1 --max-pending-requests 16 --pending-timeout-ms 600000 \
+  --log-level info ${NINFER_EXTRA}
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=600
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -208,9 +208,37 @@ workspace/graph ~1 + MTP KV ~0.5 ≈ **43 GiB**，219k（83% KV 占用）长 pro
 ≥128k 上下文后的解码（KV 读带宽减半），幅度 ±8% 在运行间噪声内。
 DFlash2 产物（recipe v2，7 草稿）同样适用上述 KV/预取参数，投机模式换成
 `NINFER_SPEC=dflash2`（= `--spec dflash2 --draft-tokens 7 --lm-head-draft`）。
-L20 实测（bf16 KV，WaveCut）：code 贪心 **100.86** tok/s（42.2% 接受，比 MTP k3 的
-88.69 快 14%）、qa 贪心 77.00、prose 贪心 69.29（比 MTP k3 的 87.49 慢 21%）——
-**代码负载 DFlash2 更快，散文/通用负载 MTP k3 更快**；两者都远快于无投机（44）。
+思维开关有两个变体：模型默认 = thinking ON（xhigh），即 **dflash2_think**；
+加 `--no-thinking` = **dflash2**（纯输出，无思维链）。
+
+**L20 实测（bf16 KV，262144，WaveCut，2026-09-24，独立干净跑）：**
+
+| 配置 | code 贪心 | code temp0.7 | prose 贪心 | prose temp0.7 | qa 贪心 | qa temp0.7 | ≥128k 后解码 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| MTP k3 | 88.69 | — | 87.49 | — | 82.86 | — | — |
+| dflash2_think（xhigh） | 98.35（接受 42%） | 82.69 | 67.82 | 69.31 | 75.86 | 64.10 | **123.5** |
+| dflash2（--no-thinking） | **127.83**（接受 60%） | **130.04**（接受 62%） | 70.43 | 61.87 | **108.39**（接受 48%） | 102.83 | 51.3 |
+
+- **dflash2（关思维）整体最快**：code 比 MTP k3 快 44%、qa 快 31%，仅 prose 慢 20%
+- dflash2_think 只有 code 明显快（+11%）；但 ≥128k 深上下文后它的解码（123.5）
+  远高于关思维（51.3）——长上下文重负载可换回 thinking
+- prose/通用负载仍以 MTP k3 最佳（87.49）；两个 DFlash2 变体的 prose 都更慢
+- 128k prefill 三个配置都在 1084–1110 tok/s（噪声范围内），219k TTFT ~241 s
+
+### systemd 服务（性能最好配置一键常驻）
+
+仓库自带 `scripts/ninfer4l20.service` + `scripts/ninfer4l20.env`，默认加载
+**WaveCut + dflash2 + --no-thinking + bf16 + 262144**（即上表最快行）：
+
+```
+sudo cp scripts/ninfer4l20.service /etc/systemd/system/
+sudo cp scripts/ninfer4l20.env /etc/ninfer4l20.env    # 先改 CUDA_VISIBLE_DEVICES / 模型
+sudo systemctl daemon-reload && sudo systemctl enable --now ninfer4l20
+journalctl -u ninfer4l20 -f                            # 跟踪日志
+```
+
+GPU 号、模型路径、spec、draft、thinking 开关都在 `/etc/ninfer4l20.env` 里改，
+`systemctl restart ninfer4l20` 生效。引擎约 8 s 就绪（7.5 s 权重加载 + CUDA graph）。
 
 ## 已验证的稳健性场景（本仓库测试环境实测）
 
