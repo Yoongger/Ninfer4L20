@@ -1,20 +1,22 @@
 [Unit]
-Description=NInfer4L20 - Qwen3.8-27B-NInfer inference service (L20, 262144 ctx)
+Description=NInfer4L20 - Qwen3.8-27B-NInfer inference service (L20 GPU2, 262144 ctx)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=lenovo
-EnvironmentFile=/etc/ninfer4l20.env
-ExecStart=/opt/Ninfer4L20/src/src/build/apps/ninfer-serve ${NINFER_MODEL} \
-  --host ${NINFER_HOST} --port ${NINFER_PORT} \
-  --max-context ${NINFER_MAX_CONTEXT} --kv-capacity ${NINFER_KV_CAPACITY} \
-  --kv-dtype ${NINFER_KV_DTYPE} \
-  --spec ${NINFER_SPEC} --draft-tokens ${NINFER_DRAFT_TOKENS} --lm-head-draft \
-  --prefill-chunk ${NINFER_PREFILL_CHUNK} \
+Environment=CUDA_VISIBLE_DEVICES=2
+ExecStart=/opt/Ninfer4L20/src/src/build/apps/ninfer-serve \
+  /opt/models/WaveCut/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-DFlash2-NInfer/qwen3_8_27b_hauhaucs_aggressive_dflash2.ninfer \
+  --host 127.0.0.1 --port 8002 \
+  --model-id Qwen3.8 \
+  --max-context 262144 --kv-capacity 262144 \
+  --kv-dtype bf16 \
+  --spec dflash2 --draft-tokens 7 --lm-head-draft --no-thinking \
+  --prefill-chunk 2688 \
   --max-concurrency 1 --max-pending-requests 16 --pending-timeout-ms 600000 \
-  --log-level info ${NINFER_EXTRA}
+  --log-level info
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=600

@@ -227,18 +227,21 @@ DFlash2 产物（recipe v2，7 草稿）同样适用上述 KV/预取参数，投
 
 ### systemd 服务（性能最好配置一键常驻）
 
-仓库自带 `scripts/ninfer4l20.service` + `scripts/ninfer4l20.env`，默认加载
-**WaveCut + dflash2 + --no-thinking + bf16 + 262144**（即上表最快行）：
+仓库自带 `scripts/ninfer4l20.service`（自包含，无外部 env 文件），默认加载
+**WaveCut + dflash2 + --no-thinking + bf16 + 262144**（即上表最快行），
+监听 `127.0.0.1:8002`，模型标识 `Qwen3.8`（`--model-id`），跑在 GPU 2：
 
 ```
 sudo cp scripts/ninfer4l20.service /etc/systemd/system/
-sudo cp scripts/ninfer4l20.env /etc/ninfer4l20.env    # 先改 CUDA_VISIBLE_DEVICES / 模型
 sudo systemctl daemon-reload && sudo systemctl enable --now ninfer4l20
 journalctl -u ninfer4l20 -f                            # 跟踪日志
+curl http://127.0.0.1:8002/v1/models                   # -> id "Qwen3.8"
 ```
 
-GPU 号、模型路径、spec、draft、thinking 开关都在 `/etc/ninfer4l20.env` 里改，
-`systemctl restart ninfer4l20` 生效。引擎约 8 s 就绪（7.5 s 权重加载 + CUDA graph）。
+改 GPU 号 / 端口 / 模型 / spec / thinking 开关直接编辑 the unit's ExecStart,
+then `sudo systemctl daemon-reload && sudo systemctl restart ninfer4l20`.
+Engine is ready in ~8 s (weights load + CUDA graphs). Note: if another service
+already holds port 8002 the engine exits with `cannot bind` — free the port first.
 
 ## 已验证的稳健性场景（本仓库测试环境实测）
 
