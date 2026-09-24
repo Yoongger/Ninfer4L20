@@ -206,9 +206,11 @@ L20 带宽是 4090 的 85.7%、SM 数 71.9%，**实测落在硬件规格区间�
 workspace/graph ~1 + MTP KV ~0.5 ≈ **43 GiB**，219k（83% KV 占用）长 prompt 实测通过。
 4090（24 GB）放不下 bf16 KV @172032，profile 保持 int8。唯一 int8 略优的场景是
 ≥128k 上下文后的解码（KV 读带宽减半），幅度 ±8% 在运行间噪声内。
-DFlash2 产物（recipe v2，7 草稿）同样可用上述配置，另可加
-`--spec dflash2 --draft-tokens 7 --lm-head-draft`（L20 实测 64–88 tok/s，快于无投机、
-慢于 MTP k3）。
+DFlash2 产物（recipe v2，7 草稿）同样适用上述 KV/预取参数，投机模式换成
+`NINFER_SPEC=dflash2`（= `--spec dflash2 --draft-tokens 7 --lm-head-draft`）。
+L20 实测（bf16 KV，WaveCut）：code 贪心 **100.86** tok/s（42.2% 接受，比 MTP k3 的
+88.69 快 14%）、qa 贪心 77.00、prose 贪心 69.29（比 MTP k3 的 87.49 慢 21%）——
+**代码负载 DFlash2 更快，散文/通用负载 MTP k3 更快**；两者都远快于无投机（44）。
 
 ## 已验证的稳健性场景（本仓库测试环境实测）
 

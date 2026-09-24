@@ -13,8 +13,8 @@
 #   NINFER_MODEL           (default $ROOT/models/qwen3_8_27b.ninfer)
 #   NINFER_MAX_CONTEXT     NINFER_KV_CAPACITY
 #   NINFER_KV_DTYPE        int8 | bf16 | fp8 | ...   (default per profile)
-#   NINFER_SPEC            mtp | none        (default mtp)
-#   NINFER_DRAFT_TOKENS    (default 3)
+#   NINFER_SPEC            mtp | dflash2 | none   (default mtp)
+#   NINFER_DRAFT_TOKENS    (default 3 for mtp, 7 for dflash2)
 #   NINFER_PREFILL_CHUNK   (default per profile; keep <= 2688, see PORT-SPEC)
 #   NINFER_MAX_CONCURRENCY (default 1)
 #
@@ -79,7 +79,11 @@ MAX_CONTEXT="${NINFER_MAX_CONTEXT:-$P_MAX_CONTEXT}"
 KV_CAPACITY="${NINFER_KV_CAPACITY:-$P_KV_CAPACITY}"
 KV_DTYPE="${NINFER_KV_DTYPE:-$P_KV_DTYPE}"
 SPEC="${NINFER_SPEC:-mtp}"
-DRAFT_TOKENS="${NINFER_DRAFT_TOKENS:-3}"
+case "$SPEC" in
+  dflash2) DEFAULT_DRAFT=7 ;;   # recipe-v2 DFlash2 payload: 7 drafts
+  *)       DEFAULT_DRAFT=3 ;;
+esac
+DRAFT_TOKENS="${NINFER_DRAFT_TOKENS:-$DEFAULT_DRAFT}"
 PREFILL_CHUNK="${NINFER_PREFILL_CHUNK:-$P_PREFILL_CHUNK}"
 MAX_CONCURRENCY="${NINFER_MAX_CONCURRENCY:-1}"
 
@@ -109,9 +113,13 @@ cmd=( "$BIN" "$MODEL"
   --max-concurrency "$MAX_CONCURRENCY" --max-pending-requests 16 --pending-timeout-ms 600000
   --prefill-chunk "$PREFILL_CHUNK" --kv-dtype "$KV_DTYPE"
   --log-level info )
-if [ "$SPEC" = "mtp" ]; then
-  cmd+=( --spec mtp --draft-tokens "$DRAFT_TOKENS" --lm-head-draft )
-fi
+case "$SPEC" in
+  mtp|dflash2)
+    cmd+=( --spec "$SPEC" --draft-tokens "$DRAFT_TOKENS" --lm-head-draft ) ;;
+  none) ;;
+  *)
+    echo "FATAL: NINFER_SPEC must be mtp, dflash2 or none (got: $SPEC)"; exit 1 ;;
+esac
 
 printf '  launching: %s\n' "${cmd[*]}"
 setsid nohup "${cmd[@]}" >> "$LOG" 2>&1 < /dev/null &
